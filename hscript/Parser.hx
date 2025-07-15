@@ -105,7 +105,7 @@ class Parser {
 
 	public function new() {
 		line = 1;
-		opChars = "+*/-=!><&|^%~";
+		opChars = "+*/-=!><&|^%~?";
 		identChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_";
 		var priorities = [
 			["%"],
@@ -117,6 +117,7 @@ class Parser {
 			["..."],
 			["&&"],
 			["||"],
+			["??"],
 			["=","+=","-=","*=","/=","%=","<<=",">>=",">>>=","|=","&=","^=","=>"],
 			["->"],
 			["in","is"]
@@ -126,7 +127,7 @@ class Parser {
 		for( i in 0...priorities.length )
 			for( x in priorities[i] ) {
 				opPriority.set(x, i);
-				if( i == 9 ) opRightAssoc.set(x, true);
+				if( i == 10 ) opRightAssoc.set(x, true);
 			}
 		for( x in ["!", "++", "--", "~"] ) // unary "-" handled in parser directly!
 			opPriority.set(x, x == "++" || x == "--" ? -1 : -2);
@@ -348,6 +349,12 @@ class Parser {
 				e = mk(EIdent(id));
 			return parseExprNext(e);
 		case TConst(c):
+			switch (c) {
+				case CString(s, interpolated):
+					if (interpolated)
+						return parseExprNext(interpolate(s));
+				default:
+			}
 			return parseExprNext(mk(EConst(c)));
 		case TPOpen:
 			tk = token();
@@ -482,6 +489,70 @@ class Parser {
 		default:
 			return unexpected(tk);
 		}
+	}
+
+	function interpolate(s:String) {
+		var exprs:Array<Expr> = [];
+		var dollarIndex = s.indexOf('$');
+
+		while (dollarIndex > -1) {
+			var i = dollarIndex;
+			var char = s.charAt(++i);
+			switch (char) {
+				case '$':
+					s = s.substring(0, i) + s.substr(i + 1);
+				case '{':
+					var expr = "";
+					var depth = 0;
+
+					var precedingSub = s.substring(0, i - 1);
+					if (precedingSub != "")
+						exprs.push(mk(EConst(CString(precedingSub))));
+
+					while (depth >= 0) {
+						char = s.charAt(++i);
+						if (char == '{')
+							depth++;
+						else if (char == '}') {
+							depth--;
+							if (depth < 0)
+								break;
+						}
+						expr += char;
+					}
+
+					exprs.push(parseString(expr #if hscriptPos, origin #end));
+					s = s.substr(i + 1);
+				case c if (c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'): // [a-zA-Z_]
+					var ident = c;
+					var precedingSub = s.substring(0, i - 1);
+					if (precedingSub != "")
+						exprs.push(mk(EConst(CString(precedingSub))));
+					while (true) {
+						char = s.charAt(++i);
+						if (char == '_' 
+						|| char >= 'a' && char <= 'z' 
+						|| char >= 'A' && char <= 'Z' 
+						|| char >= '0' && char <= '9') // [a-zA-Z0-9_]
+							ident += char;
+						else break;
+					}
+					exprs.push(mk(EIdent(ident)));
+					s = s.substr(i);
+			}
+			dollarIndex = s.indexOf('$');
+		}
+
+		if (exprs.length == 0)
+			exprs.push(mk(EConst(CString(s))));
+
+		var expr = exprs[0];
+		for (i in 1...exprs.length) {
+			var nextExpr = exprs[i];
+			expr = mk(EBinop('+', expr, nextExpr));
+		}
+
+		return expr;
 	}
 
 	function parseLambda( args : Array<Argument>, pmin ) {
@@ -782,6 +853,47 @@ class Parser {
 				}
 			}
 			mk(ESwitch(e, cases, def), p1, tokenMax);
+		case "typedef":
+			var name = getIdent();
+
+			ensureToken(TOp("="));
+
+			var t = parseType();
+			switch (t) {
+				case CTAnon(_) | CTFun(_):
+					mk(EIgnore(true));
+				case CTPath(tp, params):
+					var path = tp;
+					var params = params;
+					if (params != null && params.length > 1)
+						error(ECustom("Typedefs can't have parameters"), tokenMin, tokenMax);
+
+					if (path.length == 0)
+						error(ECustom("Typedefs can't be empty"), tokenMin, tokenMax);
+
+					{
+						var className = path.join(".");
+						var cl:Dynamic = Type.resolveClass(className);
+						if (cl == null) // try importing as enum
+							try
+								cl = Type.resolveEnum(className);
+
+						if (cl != null) {
+							return mk(EVar(name, null, mk(EDirectValue(cl))));
+						}
+					}
+
+					var expr = mk(EIdent(path.shift()));
+					while (path.length > 0) {
+						expr = mk(EField(expr, path.shift()));
+					}
+
+					// todo? add import to the beginning of the file?
+					mk(EVar(name, null, expr));
+				default:
+					error(ECustom("Typedef, unknown type " + t), tokenMin, tokenMax);
+					null;
+			}
 		default:
 			null;
 		}
@@ -1169,8 +1281,19 @@ class Parser {
 					unexpected(t);
 				}
 			}
+
+			var name = null;
+			if ( maybe(TId("as")) && !star) {
+				var t = token();
+				switch( t ) {
+				case TId(id):
+					name = id;
+				default:
+					unexpected(t);
+				}
+			}
 			ensure(TSemicolon);
-			return DImport(path, star);
+			return DImport(path, star, name);
 		case "class":
 			var name = getIdent();
 			var params = parseParams();
@@ -1211,16 +1334,55 @@ class Parser {
 			ensureToken(TOp("="));
 			var t = parseType();
 			return DTypedef({
-				name : name,
-				meta : meta,
-				params : params,
-				isPrivate : isPrivate,
-				t : t,
+				name: name,
+				meta: meta,
+				params: params,
+				isPrivate: isPrivate,
+				t: t,
+			});
+		case "enum":
+			var name = getIdent();
+			
+			var fields = [];
+			ensure(TBrOpen);
+			while( !maybe(TBrClose) ) {
+				fields.push(parseEnumField());
+				ensure(TSemicolon);
+			}
+
+			return DEnum({
+				name: name,
+				fields: fields
 			});
 		default:
 			unexpected(TId(ident));
 		}
 		return null;
+	}
+
+	function parseEnumField() : EnumFieldDecl {
+		var name = getIdent();
+
+		var args = [];
+		if( maybe(TPOpen) ) {
+			while ( !maybe(TPClose) )
+				args.push(parseEnumArg());
+		}
+		
+		return {
+			name: name,
+			args: args
+		};
+	}
+
+	function parseEnumArg() : EnumArgDecl {
+		var name = getIdent();
+		var type = maybe(TDoubleDot) ? parseType() : null;
+
+		return {
+			name: name,
+			type: type
+		};
 	}
 
 	function parseField() : FieldDecl {
@@ -1503,11 +1665,17 @@ class Parser {
 			case "}".code: return TBrClose;
 			case "[".code: return TBkOpen;
 			case "]".code: return TBkClose;
-			case "'".code, '"'.code: return TConst( CString(readString(char)) );
+			case "'".code, '"'.code: return TConst( CString(readString(char), true) );
 			case "?".code:
 				char = readChar();
-				if( char == ".".code )
+				if (char == ".".code)
 					return TQuestionDot;
+				else if (char == "?".code) {
+					char = readChar();
+					if (char == "=".code)
+						return TOp("??" + "=");
+					return TOp("??");
+				}
 				this.char = char;
 				return TQuestion;
 			case ":".code: return TDoubleDot;

@@ -98,6 +98,8 @@ class Interp {
 		binops.set("=",assign);
 		binops.set("...",function(e1,e2) return new IntIterator(me.expr(e1),me.expr(e2)));
 		binops.set("is",function(e1,e2) return #if (haxe_ver >= 4.2) Std.isOfType #else Std.is #end (me.expr(e1), me.expr(e2)));
+		binops.set("??",function(e1,e2) return me.expr(e1) ?? me.expr(e2));
+		
 		assignOp("+=",function(v1:Dynamic,v2:Dynamic) return v1 + v2);
 		assignOp("-=",function(v1:Float,v2:Float) return v1 - v2);
 		assignOp("*=",function(v1:Float,v2:Float) return v1 * v2);
@@ -109,6 +111,7 @@ class Interp {
 		assignOp("<<=",function(v1,v2) return v1 << v2);
 		assignOp(">>=",function(v1,v2) return v1 >> v2);
 		assignOp(">>>=",function(v1,v2) return v1 >>> v2);
+		assignOp("??" + "=", function(v1, v2) return v1 == null ? v2 : v1);
 	}
 
 	function setVar( name : String, v : Dynamic ) {
@@ -295,12 +298,16 @@ class Interp {
 		var e = e.e;
 		#end
 		switch( e ) {
+		case EIgnore(_):
+			
 		case EConst(c):
 			switch( c ) {
 			case CInt(v): return v;
 			case CFloat(f): return f;
 			case CString(s): return s;
 			}
+		case EDirectValue(v):
+			return v;
 		case EIdent(id):
 			var l = locals.get(id);
 			if( l != null )
@@ -522,14 +529,42 @@ class Interp {
 		case ETernary(econd,e1,e2):
 			return if( expr(econd) == true ) expr(e1) else expr(e2);
 		case ESwitch(e, cases, def):
+			var old:Int = declared.length;
 			var val : Dynamic = expr(e);
 			var match = false;
 			for( c in cases ) {
-				for( v in c.values )
-					if( expr(v) == val ) {
-						match = true;
-						break;
+				for( v in c.values ) {
+					switch ( Tools.expr(v) ) {
+					case ECall(e, params):
+						switch ( Tools.expr(e) ) {
+						case EField(_, f):
+							var valStr:String = cast val;
+							valStr = valStr.substring(0, valStr.indexOf("("));
+							if (valStr == f) {
+								var valParams = Type.enumParameters(val);
+								for (i => p in params) {
+									switch ( Tools.expr(p) ) {
+									case EIdent(n):
+										declared.push({
+											n: n,
+											old: {r: locals.get(n)}
+										});
+										locals.set(n, {r: valParams[i]});
+									default:
+									}
+								}
+								match = true;
+								break;
+							}
+						default:
+						}
+					default:
+						if( expr(v) == val ) {
+							match = true;
+							break;
+						}
 					}
+				}
 				if( match ) {
 					val = expr(c.expr);
 					break;
@@ -537,6 +572,7 @@ class Interp {
 			}
 			if( !match )
 				val = def == null ? null : expr(def);
+			restore(old);
 			return val;
 		case EMeta(_, _, e):
 			return expr(e);
@@ -572,7 +608,8 @@ class Interp {
 			return (v : Array<Dynamic>).iterator();
 		if( v.iterator != null ) v = v.iterator();
 		#else
-		try v = v.iterator() catch( e : Dynamic ) {};
+		#if (cpp) if ( v.iterator != null ) #end
+			try v = v.iterator() catch( e : Dynamic ) {};
 		#end
 		if( v.hasNext == null || v.next == null ) error(EInvalidIterator(v));
 		return v;

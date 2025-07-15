@@ -24,7 +24,7 @@ package hscript;
 enum Const {
 	CInt( v : Int );
 	CFloat( f : Float );
-	CString( s : String );
+	CString( s : String, ?interpolated:Bool );
 }
 
 #if hscriptPos
@@ -40,6 +40,7 @@ enum ExprDef {
 typedef ExprDef = Expr;
 enum Expr {
 #end
+	EIgnore(skipSemicolon:Bool);
 	EConst( c : Const );
 	EIdent( v : String );
 	EVar( n : String, ?t : CType, ?e : Expr );
@@ -68,6 +69,7 @@ enum Expr {
 	EMeta( name : String, args : Array<Expr>, e : Expr );
 	ECheckType( e : Expr, t : CType );
 	EForGen( it : Expr, e : Expr );
+	EDirectValue(value:Dynamic);
 }
 
 typedef Argument = { name : String, ?t : CType, ?opt : Bool, ?value : Expr };
@@ -121,9 +123,10 @@ enum Error {
 
 enum ModuleDecl {
 	DPackage( path : Array<String> );
-	DImport( path : Array<String>, ?everything : Bool );
+	DImport( path : Array<String>, ?everything : Bool, ?name : String );
 	DClass( c : ClassDecl );
 	DTypedef( c : TypeDecl );
+	DEnum( e : EnumDecl );
 }
 
 typedef ModuleType = {
@@ -131,6 +134,21 @@ typedef ModuleType = {
 	var params : {}; // TODO : not yet parsed
 	var meta : Metadata;
 	var isPrivate : Bool;
+}
+
+typedef EnumDecl = {
+	var name: String;
+	var fields : Array<EnumFieldDecl>;
+}
+
+typedef EnumFieldDecl = {
+	var name : String;
+	var args : Array<EnumArgDecl>;
+}
+
+typedef EnumArgDecl = {
+	var name : String;
+	var type : Null<CType>;
 }
 
 typedef ClassDecl = {> ModuleType,
