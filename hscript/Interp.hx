@@ -299,7 +299,6 @@ class Interp {
 		#end
 		switch( e ) {
 		case EIgnore(_):
-			
 		case EConst(c):
 			switch( c ) {
 			case CInt(v): return v;

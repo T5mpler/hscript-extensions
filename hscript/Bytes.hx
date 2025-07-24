@@ -124,6 +124,9 @@ class Bytes {
 		#end
 		bout.addByte(exprIndex(e));
 		switch( e ) {
+		case EIgnore(_): null;
+		case EDirectValue(value):
+			doEncode(value);
 		case EConst(c):
 			doEncodeConst(c);
 		case EIdent(v):
@@ -240,6 +243,8 @@ class Bytes {
 
 	function exprIndex(e):Int {
 		return switch (e) {
+			case EIgnore(_): -1;
+			case EDirectValue(_): -1;
 			case EConst(_): 0;
 			case EIdent(_): 1;
 			case EVar(_): 2;

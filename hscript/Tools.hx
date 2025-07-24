@@ -58,11 +58,13 @@ class Tools {
 			if( def != null ) f(def);
 		case EMeta(name, args, e): if( args != null ) for( a in args ) f(a); f(e);
 		case ECheckType(e,_): f(e);
+		default:
 		}
 	}
 
 	public static function map( e : Expr, f : Expr -> Expr ) {
 		var edef = switch( expr(e) ) {
+		case EIgnore(_): null;
 		case EConst(_), EIdent(_), EBreak, EContinue: expr(e);
 		case EVar(n, t, e): EVar(n, t, if( e != null ) f(e) else null);
 		case EParent(e): EParent(f(e));
@@ -88,6 +90,7 @@ class Tools {
 		case ESwitch(e, cases, def): ESwitch(f(e), [for( c in cases ) { values : [for( v in c.values ) f(v)], expr : f(c.expr) } ], def == null ? null : f(def));
 		case EMeta(name, args, e): EMeta(name, args == null ? null : [for( a in args ) f(a)], f(e));
 		case ECheckType(e,t): ECheckType(f(e), t);
+		default: #if hscriptPos e.e #else e #end;
 		}
 		return mk(edef, e);
 	}

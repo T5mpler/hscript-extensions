@@ -137,7 +137,8 @@ class Macro {
 	}
 
 	public function convert( e : hscript.Expr ) : Expr {
-		return { expr : switch( #if hscriptPos e.e #else e #end ) {
+		return { expr : switch (#if hscriptPos e.e #else e #end) {
+			default: null;
 			case EConst(c):
 				EConst(switch(c) {
 					case CInt(v): CInt(Std.string(v));
