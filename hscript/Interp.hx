@@ -600,17 +600,17 @@ class Interp {
 		restore(old);
 	}
 
-	function makeIterator( v : Dynamic ) : Iterator<Dynamic> {
-		#if js
-		// don't use try/catch (very slow)
-		if( v is Array )
-			return (v : Array<Dynamic>).iterator();
-		if( v.iterator != null ) v = v.iterator();
+	function makeIterator(v: Dynamic): Iterator<Dynamic> {
+		#if ((flash && !flash9) || (php && !php7 && haxe_ver < '4.0.0'))
+		if (v.iterator != null)
+			v = v.iterator();
 		#else
-		#if (cpp) if ( v.iterator != null ) #end
-			try v = v.iterator() catch( e : Dynamic ) {};
+		try
+			v = v.iterator()
+		catch (e:Dynamic) {};
 		#end
-		if( v.hasNext == null || v.next == null ) error(EInvalidIterator(v));
+		if (v.hasNext == null || v.next == null)
+			error(EInvalidIterator(v));
 		return v;
 	}
 
@@ -627,14 +627,25 @@ class Interp {
 		return v;
 	}
 
-	function forLoop(n,it,e) {
+	function forLoop(n, it, e) {
 		var old = declared.length;
-		declared.push({ n : n, old : locals.get(n) });
+		declared.push({n: n, old: locals.get(n)});
 		var it = makeIterator(expr(it));
-		while( it.hasNext() ) {
-			locals.set(n,{ r : it.next() });
-			if( !loopRun(() -> expr(e)) )
-				break;
+		var _itHasNext = it.hasNext;
+		var _itNext = it.next;
+		while (_itHasNext()) {
+			locals.set(n,{ r : _itNext });
+			try {
+				expr(e);
+			} catch (err:Stop) {
+				switch (err) {
+					case SContinue:
+					case SBreak:
+						break;
+					case SReturn:
+						throw err;
+				}
+			}
 		}
 		restore(old);
 	}
