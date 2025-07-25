@@ -873,11 +873,8 @@ class Parser {
 
 					{
 						var className = path.join(".");
-						var cl:Dynamic = Type.resolveClass(className);
-						if (cl == null) // try importing as enum
-							try
-								cl = Type.resolveEnum(className);
-
+						var cl:Dynamic = Tools.getClass(className);
+						
 						if (cl != null) {
 							return mk(EVar(name, null, mk(EDirectValue(cl))));
 						}

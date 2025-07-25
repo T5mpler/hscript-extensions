@@ -130,5 +130,37 @@ class Tools {
 		}
 		return callb(key,value,it);
 	}
+	
+	public static function removeInnerClass(name: String): String {
+		var ll = name.lastIndexOf(".");
+		if (name.indexOf(".") != ll) { // checks if there are 2 or more dots
+			// wtf did i make -neo
+			// this is awesome -crow
+			return name.substr(0, name.lastIndexOf(".", ll - 1)) + "." + name.substr(ll + 1);
+		}
+		// only one dot or no dots (will work since -1 + 1 = 0)
+		return name.substr(ll + 1);
+	}
+
+	public static function getClass(name: String): Dynamic {
+		var c: Dynamic = Type.resolveClass(name);
+		if (c == null) // try importing as enum
+			try
+				c = Type.resolveEnum(name);
+
+		if (c == null) {
+			// lastly try removing any inner class from it
+			// this allows you to import stuff like
+			// flixel.text.FlxText.FlxTextBorderStyle
+			// without the script crashing immediately
+			var className = removeInnerClass(name);
+			if (className != name) {
+				c = Type.resolveClass(className);
+				if (c == null)
+					c = Type.resolveEnum(className);
+			}
+		}
+		return c;
+	}
 
 }
