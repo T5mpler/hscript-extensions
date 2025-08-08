@@ -70,6 +70,7 @@ enum Expr {
 	ECheckType( e : Expr, t : CType );
 	EForGen( it : Expr, e : Expr );
 	EDirectValue(value:Dynamic);
+	EUsing(name:String);
 }
 
 typedef Argument = { name : String, ?t : CType, ?opt : Bool, ?value : Expr };

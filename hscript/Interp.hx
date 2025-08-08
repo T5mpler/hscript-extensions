@@ -20,6 +20,8 @@
  * DEALINGS IN THE SOFTWARE.
  */
 package hscript;
+import Type.ValueType;
+import hscript.Tools.UsingEntry;
 import haxe.PosInfos;
 import hscript.Expr;
 import haxe.Constraints.IMap;
@@ -44,6 +46,41 @@ class Interp {
 	#if hscriptPos
 	var curExpr : Expr;
 	#end
+
+	public static var registeredUsingEntries: Array<UsingEntry> = [
+		new UsingEntry("StringTools", function(o:Dynamic, f:String, args:Array<Dynamic>): Dynamic
+		{
+			if (f == "isEof")
+				return null;
+			switch (Type.typeof(o))
+			{
+				case TInt if (f == "hex"):
+					return StringTools.hex(o, args[0]);
+				case TClass(String):
+					if (Reflect.hasField(StringTools, f)) {
+						var field = Reflect.field(StringTools, f);
+						if (Reflect.isFunction(field)) {
+							return Reflect.callMethod(StringTools, field, [o].concat(args));
+						}
+					}
+				default:
+			}
+			return null;
+		}),
+		new UsingEntry("Lambda", function(o:Dynamic, f:String, args:Array<Dynamic>): Dynamic
+		{
+			if (o != null && o.iterator != null) {
+				// TODO: Check if the values are Iterable<T>
+				if (Reflect.hasField(Lambda, f)) {
+					var field = Reflect.field(Lambda, f);
+					if (Reflect.isFunction(field)) {
+						return Reflect.callMethod(Lambda, field, [o].concat(args));
+					}
+				}
+			}
+			return null;
+		}),
+	];
 
 	public function new() {
 		locals = new Map();
@@ -577,6 +614,8 @@ class Interp {
 			return expr(e);
 		case ECheckType(e,_):
 			return expr(e);
+		case EUsing(name):
+			useUsing(name);
 		}
 		return null;
 	}
@@ -634,7 +673,7 @@ class Interp {
 		var _itHasNext = it.hasNext;
 		var _itNext = it.next;
 		while (_itHasNext()) {
-			locals.set(n,{ r : _itNext });
+			locals.set(n,{ r : it.next() });
 			try {
 				expr(e);
 			} catch (err:Stop) {
@@ -732,6 +771,85 @@ class Interp {
 		return null;
 	}
 
+	function useUsing(name: String): Void {
+		for (us in Interp.registeredUsingEntries) {
+			if (us.name == name) {
+				if (usings.indexOf(us) == -1)
+					usings.push(us);
+				return;
+			}
+		}
+
+		var cls = Tools.getClass(name);
+		if (cls != null) {
+			var fieldName = '__irisUsing_' + StringTools.replace(name, ".", "_");
+			if (Reflect.hasField(cls, fieldName)) {
+				var fields = Reflect.field(cls, fieldName);
+				if (fields == null)
+					return;
+
+				var entry = new UsingEntry(name, function(o: Dynamic, f: String, args: Array<Dynamic>): Dynamic {
+					if (!fields.exists(f))
+						return null;
+					var type: ValueType = Type.typeof(o);
+					var valueType: ValueType = fields.get(f);
+
+					// If we figure out a better way to get the types as the real ValueType, we can use this instead
+					// if (Type.enumEq(valueType, type))
+					//	return Reflect.callMethod(cls, Reflect.field(cls, f), [o].concat(args));
+
+					var canCall = valueType == null ? true : switch (valueType) {
+						case TEnum(null):
+							type.match(TEnum(_));
+						case TClass(null):
+							type.match(TClass(_));
+						case TClass(IMap): // if we don't check maps like this, it just doesn't work
+							type.match(TClass(IMap) | TClass(haxe.ds.ObjectMap) | TClass(haxe.ds.StringMap) | TClass(haxe.ds.IntMap) | TClass(haxe.ds.EnumValueMap));
+						default:
+							Type.enumEq(type, valueType);
+					}
+
+					return canCall ? Reflect.callMethod(cls, Reflect.field(cls, f), [o].concat(args)) : null;
+				});
+
+				#if IRIS_DEBUG
+				trace("Registered macro based using entry for " + name);
+				#end
+
+				Interp.registeredUsingEntries.push(entry);
+				usings.push(entry);
+				return;
+			}
+
+			// Use reflection to generate the using entry
+			var entry = new UsingEntry(name, function(o: Dynamic, f: String, args: Array<Dynamic>): Dynamic {
+				if (!Reflect.hasField(cls, f))
+					return null;
+				var field = Reflect.field(cls, f);
+				if (!Reflect.isFunction(field))
+					return null;
+
+				// invalid if the function has no arguments
+				var totalArgs = Tools.argCount(field);
+				if (totalArgs == 0)
+					return null;
+
+				// todo make it check if the first argument is the correct type
+
+				return Reflect.callMethod(cls, field, [o].concat(args));
+			});
+
+			#if IRIS_DEBUG
+			trace("Registered reflection based using entry for " + name);
+			#end
+
+			Interp.registeredUsingEntries.push(entry);
+			usings.push(entry);
+			return;
+		}
+		trace(ECustom("Unknown using class " + name));
+	}
+
 	function get( o : Dynamic, f : String ) : Dynamic {
 		if ( o == null ) error(EInvalidAccess(f));
 		return {
@@ -754,7 +872,14 @@ class Interp {
 		return v;
 	}
 
-	function fcall( o : Dynamic, f : String, args : Array<Dynamic> ) : Dynamic {
+	var usings: Array<UsingEntry> = [];
+
+	function fcall(o: Dynamic, f: String, args: Array<Dynamic>): Dynamic {
+		for (_using in usings) {
+			var v = _using.call(o, f, args);
+			if (v != null)
+				return v;
+		}
 		return call(o, get(o, f), args);
 	}
 

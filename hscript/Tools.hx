@@ -22,6 +22,20 @@
 package hscript;
 import hscript.Expr;
 
+typedef UsingCall = (o:Dynamic, f:String, args:Array<Dynamic>) -> Dynamic;
+
+class UsingEntry
+{
+	public var name:String;
+	public var call:UsingCall;
+
+	public function new(name:String, call:UsingCall)
+	{
+		this.name = name;
+		this.call = call;
+	}
+}
+
 class Tools {
 
 	public static function iter( e : Expr, f : Expr -> Void ) {
@@ -163,4 +177,13 @@ class Tools {
 		return c;
 	}
 
+	public static function argCount(func: haxe.Constraints.Function): Int {
+		#if cpp
+		return untyped __cpp__("{0}->__ArgCount()", func);
+		#elseif js
+		return untyped js.Syntax.code("{0}.length", func);
+		#else
+		return -1;
+		#end
+	}
 }

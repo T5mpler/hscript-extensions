@@ -335,6 +335,9 @@ class Printer {
 			add(" : ");
 			addType(t);
 			add(")");
+		case EUsing(name):
+			add("using ");
+			add(name);
 		}
 	}
 

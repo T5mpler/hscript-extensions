@@ -22,6 +22,7 @@
 package hscript;
 import hscript.Expr;
 
+
 class Bytes {
 
 	var bin : haxe.io.Bytes;
@@ -238,6 +239,8 @@ class Bytes {
 			doEncode(e);
 		case ECheckType(e,_):
 			doEncode(e);
+		case EUsing(name):
+			doEncodeString(name);
 		}
 	}
 
@@ -273,6 +276,7 @@ class Bytes {
 			case EMeta(_): 25;
 			case ECheckType(_): 26;
 			case EForGen(_): 27;
+			case EUsing(_): 28;
 		}
 	}
 
