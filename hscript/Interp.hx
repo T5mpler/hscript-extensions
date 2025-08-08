@@ -673,7 +673,7 @@ class Interp {
 		var _itHasNext = it.hasNext;
 		var _itNext = it.next;
 		while (_itHasNext()) {
-			locals.set(n,{ r : it.next() });
+			locals.set(n,{ r : _itNext() });
 			try {
 				expr(e);
 			} catch (err:Stop) {
